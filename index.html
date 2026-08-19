@@ -3,56 +3,59 @@
 <head>
   <meta charset="UTF-8">
   <title>Traductor LSM - Web</title>
-  <!-- Scripts de MediaPipe y Cámara vía CDN -->
+  <!-- CDN de MediaPipe Hands y Camera Utils -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
   <style>
     body { 
       font-family: Arial, sans-serif; 
-      background: #1e1e1e; 
+      background: #121212; 
       color: white; 
       text-align: center; 
-      margin: 0;
-      padding: 20px;
+      margin: 0; 
+      padding: 20px; 
     }
     .container { 
       position: relative; 
       display: inline-block; 
-      margin-top: 10px;
+      margin-top: 10px; 
     }
     canvas { 
-      border: 2px solid #555; 
+      border: 3px solid #008cba; 
       border-radius: 8px; 
       transform: scaleX(-1); /* Modo espejo */
     }
     .banner { 
-      background: #232323; 
+      background: #1e1e1e; 
       padding: 15px; 
-      font-size: 22px; 
+      font-size: 24px; 
       margin-top: 15px; 
       border-radius: 8px; 
-      display: inline-block;
-      min-width: 600px;
+      display: inline-block; 
+      min-width: 500px;
+      border: 1px solid #333;
     }
-    button {
+    button { 
       margin-left: 20px; 
       padding: 8px 16px; 
       font-size: 16px; 
-      background: #008cba; 
+      background: #e74c3c; 
       color: white; 
       border: none; 
       border-radius: 4px; 
-      cursor: pointer;
+      cursor: pointer; 
     }
-    button:hover { background: #005f73; }
+    button:hover { background: #c0392b; }
+    #estado { color: #2ecc71; font-size: 16px; font-weight: bold; margin-bottom: 10px; }
   </style>
 </head>
 <body>
 
   <h1>Traductor LSM en Tiempo Real</h1>
+  <div id="estado">Iniciando cámara...</div>
 
   <div class="container">
-    <video id="webcam" style="display:none;"></video>
+    <video id="webcam" style="display:none;" playsinline></video>
     <canvas id="output_canvas" width="640" height="480"></canvas>
   </div>
 
@@ -68,80 +71,94 @@
     const canvasElement = document.getElementById('output_canvas');
     const canvasCtx = canvasElement.getContext('2d');
     const textoFinalElem = document.getElementById('texto_final');
+    const estadoElem = document.getElementById('estado');
 
     let textoFinal = "";
     let ultimaLetra = "";
     let tiempoLetra = 0;
 
-    // Región de Interés (ROI)
-    const x1 = 150, y1 = 50, x2 = 500, y2 = 400;
-
     function onResults(results) {
+      estadoElem.innerText = "Sistema listo - Coloca tu mano en la cámara";
+      
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       
-      // Renderizar video de la cámara
+      // Dibujar la imagen de la cámara
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-      // Dibujar marco de ROI
-      canvasCtx.strokeStyle = "white";
-      canvasCtx.lineWidth = 2;
-      canvasCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      // Definir área activa (ROI ampliada)
+      const roiX = 80;
+      const roiY = 40;
+      const roiWidth = 480;
+      const roiHeight = 400;
 
-      let textoActual = "";
+      // Dibujar marco blanco de la ROI
+      canvasCtx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+      canvasCtx.lineWidth = 3;
+      canvasCtx.strokeRect(roiX, roiY, roiWidth, roiHeight);
+
+      let letraDetectada = "";
 
       if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
         for (let i = 0; i < results.multiHandLandmarks.length; i++) {
           const landmarks = results.multiHandLandmarks[i];
-          const handedness = results.multiHandedness[i].label; // "Left" o "Right"
 
           // Posición de la muñeca (Landmark 0)
-          const xMuneca = landmarks[0].x * canvasElement.width;
-          const yMuneca = landmarks[0].y * canvasElement.height;
+          const munecaX = landmarks[0].x * canvasElement.width;
+          const munecaY = landmarks[0].y * canvasElement.height;
 
-          // Validar ROI
-          if (!(xMuneca >= x1 && xMuneca <= x2 && yMuneca >= y1 && yMuneca <= y2)) {
-            continue;
-          }
+          // Dibujar punto en la muñeca para feedback visual
+          canvasCtx.fillStyle = "#ffff00";
+          canvasCtx.beginPath();
+          canvasCtx.arc(munecaX, munecaY, 6, 0, 2 * Math.PI);
+          canvasCtx.fill();
 
-          // Detección de estado de los dedos
+          // Lógica de detección de estado de dedos (1 = extendido, 0 = doblado)
           let dedos = [];
 
-          // Pulgar (Especial según orientación de la mano)
-          if (handedness === "Right") {
-            dedos.push(landmarks[4].x < landmarks[3].x ? 1 : 0);
-          } else {
-            dedos.push(landmarks[4].x > landmarks[3].x ? 1 : 0);
-          }
+          // Pulgar: comparamos X respecto a articulación previa
+          const pulgarExtendido = Math.abs(landmarks[4].x - landmarks[2].x) > 0.04 ? 1 : 0;
+          dedos.push(pulgarExtendido);
 
-          // Otros dedos (Índice, Medio, Anular, Meñique)
+          // Índice, Medio, Anular, Meñique (comparando Y del tip respecto a la articulación PIP)
           const tips = [8, 12, 16, 20];
           tips.forEach(tip => {
-            const diff = (landmarks[tip - 2].y - landmarks[tip].y) * canvasElement.height;
-            dedos.push(diff > 20 ? 1 : 0);
+            const extendido = landmarks[tip].y < landmarks[tip - 2].y ? 1 : 0;
+            dedos.push(extendido);
           });
 
-          // Clasificación de letras según combinaciones de tu script
-          const dStr = dedos.join(',');
-          if (dStr === "1,0,0,0,0") textoActual = "A";
-          else if (dStr === "0,1,1,1,1") textoActual = "B";
-          else if (dStr === "0,1,0,0,0") textoActual = "D";
-          else if (dStr === "1,0,0,0,1") textoActual = "E";
-          else if (dStr === "0,0,1,1,1") textoActual = "F";
-          else if (dStr === "0,0,0,0,1") textoActual = "I";
-          else if (dStr === "0,0,0,0,0") textoActual = "S";
-          else if (dStr === "0,1,1,0,0") textoActual = "U";
-          else if (dedos[0] === 1 && dedos[1] === 1 && dedos.reduce((a,b)=>a+b, 0) === 2) textoActual = "L";
+          // Mapeo de señas LSM
+          const patron = dedos.join(',');
+          
+          if (patron === "1,0,0,0,0") letraDetectada = "A";
+          else if (patron === "0,1,1,1,1") letraDetectada = "B";
+          else if (patron === "0,1,0,0,0") letraDetectada = "D";
+          else if (patron === "1,0,0,0,1") letraDetectada = "E";
+          else if (patron === "0,0,1,1,1") letraDetectada = "F";
+          else if (patron === "0,0,0,0,1") letraDetectada = "I";
+          else if (patron === "0,0,0,0,0") letraDetectada = "S";
+          else if (patron === "0,1,1,0,0") letraDetectada = "U";
+          else if (dedos[0] === 1 && dedos[1] === 1 && dedos[2] === 0 && dedos[3] === 0 && dedos[4] === 0) letraDetectada = "L";
+
+          // Mostrar letra detectada sobre la mano en el canvas
+          if (letraDetectada !== "") {
+            canvasCtx.save();
+            canvasCtx.scale(-1, 1); // Deshacer efecto espejo solo para el texto
+            canvasCtx.fillStyle = "#00ff00";
+            canvasCtx.font = "bold 40px Arial";
+            canvasCtx.fillText(letraDetectada, -munecaX - 20, munecaY - 30);
+            canvasCtx.restore();
+          }
         }
       }
 
-      // Acumulador de texto (espera 1 segundo para fijar la letra)
-      if (textoActual !== "") {
-        if (textoActual !== ultimaLetra) {
+      // Confirmar letra tras mantenerla 0.6 segundos
+      if (letraDetectada !== "") {
+        if (letraDetectada !== ultimaLetra) {
           tiempoLetra = Date.now();
-          ultimaLetra = textoActual;
-        } else if (Date.now() - tiempoLetra > 1000) {
-          textoFinal += textoActual;
+          ultimaLetra = letraDetectada;
+        } else if (Date.now() - tiempoLetra > 600) {
+          textoFinal += letraDetectada;
           ultimaLetra = "";
           textoFinalElem.innerText = textoFinal;
         }
@@ -150,21 +167,21 @@
       canvasCtx.restore();
     }
 
-    // Configuración de MediaPipe Hands
+    // Inicializar MediaPipe Hands
     const hands = new Hands({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
 
     hands.setOptions({
-      maxNumHands: 2,
+      maxNumHands: 1,
       modelComplexity: 1,
-      minDetectionConfidence: 0.8,
-      minTrackingConfidence: 0.8
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
     });
 
     hands.onResults(onResults);
 
-    // Inicialización de la Cámara Web
+    // Inicializar Cámara Web
     const camera = new Camera(videoElement, {
       onFrame: async () => {
         await hands.send({ image: videoElement });
@@ -172,15 +189,17 @@
       width: 640,
       height: 480
     });
-    camera.start();
 
-    // Función para borrar texto
+    camera.start().catch(err => {
+      estadoElem.innerText = "Error: Permite el acceso a la cámara en el navegador";
+      estadoElem.style.color = "#e74c3c";
+    });
+
     function limpiarTexto() {
       textoFinal = "";
       textoFinalElem.innerText = "";
     }
 
-    // Atajo de teclado (Presionar tecla 'R')
     document.addEventListener('keydown', (e) => {
       if (e.key === 'r' || e.key === 'R') limpiarTexto();
     });
