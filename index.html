@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Traductor LSM - Web</title>
+  <!-- Scripts de MediaPipe y Cámara vía CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      background: #1e1e1e; 
+      color: white; 
+      text-align: center; 
+      margin: 0;
+      padding: 20px;
+    }
+    .container { 
+      position: relative; 
+      display: inline-block; 
+      margin-top: 10px;
+    }
+    canvas { 
+      border: 2px solid #555; 
+      border-radius: 8px; 
+      transform: scaleX(-1); /* Modo espejo */
+    }
+    .banner { 
+      background: #232323; 
+      padding: 15px; 
+      font-size: 22px; 
+      margin-top: 15px; 
+      border-radius: 8px; 
+      display: inline-block;
+      min-width: 600px;
+    }
+    button {
+      margin-left: 20px; 
+      padding: 8px 16px; 
+      font-size: 16px; 
+      background: #008cba; 
+      color: white; 
+      border: none; 
+      border-radius: 4px; 
+      cursor: pointer;
+    }
+    button:hover { background: #005f73; }
+  </style>
+</head>
+<body>
+
+  <h1>Traductor LSM en Tiempo Real</h1>
+
+  <div class="container">
+    <video id="webcam" style="display:none;"></video>
+    <canvas id="output_canvas" width="640" height="480"></canvas>
+  </div>
+
+  <br>
+
+  <div class="banner">
+    Texto Generado: <span id="texto_final" style="color: #00ffff; font-weight: bold;"></span>
+    <button onclick="limpiarTexto()">Reiniciar (R)</button>
+  </div>
+
+  <script>
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const textoFinalElem = document.getElementById('texto_final');
+
+    let textoFinal = "";
+    let ultimaLetra = "";
+    let tiempoLetra = 0;
+
+    // Región de Interés (ROI)
+    const x1 = 150, y1 = 50, x2 = 500, y2 = 400;
+
+    function onResults(results) {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      
+      // Renderizar video de la cámara
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      // Dibujar marco de ROI
+      canvasCtx.strokeStyle = "white";
+      canvasCtx.lineWidth = 2;
+      canvasCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+      let textoActual = "";
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+          const landmarks = results.multiHandLandmarks[i];
+          const handedness = results.multiHandedness[i].label; // "Left" o "Right"
+
+          // Posición de la muñeca (Landmark 0)
+          const xMuneca = landmarks[0].x * canvasElement.width;
+          const yMuneca = landmarks[0].y * canvasElement.height;
+
+          // Validar ROI
+          if (!(xMuneca >= x1 && xMuneca <= x2 && yMuneca >= y1 && yMuneca <= y2)) {
+            continue;
+          }
+
+          // Detección de estado de los dedos
+          let dedos = [];
+
+          // Pulgar (Especial según orientación de la mano)
+          if (handedness === "Right") {
+            dedos.push(landmarks[4].x < landmarks[3].x ? 1 : 0);
+          } else {
+            dedos.push(landmarks[4].x > landmarks[3].x ? 1 : 0);
+          }
+
+          // Otros dedos (Índice, Medio, Anular, Meñique)
+          const tips = [8, 12, 16, 20];
+          tips.forEach(tip => {
+            const diff = (landmarks[tip - 2].y - landmarks[tip].y) * canvasElement.height;
+            dedos.push(diff > 20 ? 1 : 0);
+          });
+
+          // Clasificación de letras según combinaciones de tu script
+          const dStr = dedos.join(',');
+          if (dStr === "1,0,0,0,0") textoActual = "A";
+          else if (dStr === "0,1,1,1,1") textoActual = "B";
+          else if (dStr === "0,1,0,0,0") textoActual = "D";
+          else if (dStr === "1,0,0,0,1") textoActual = "E";
+          else if (dStr === "0,0,1,1,1") textoActual = "F";
+          else if (dStr === "0,0,0,0,1") textoActual = "I";
+          else if (dStr === "0,0,0,0,0") textoActual = "S";
+          else if (dStr === "0,1,1,0,0") textoActual = "U";
+          else if (dedos[0] === 1 && dedos[1] === 1 && dedos.reduce((a,b)=>a+b, 0) === 2) textoActual = "L";
+        }
+      }
+
+      // Acumulador de texto (espera 1 segundo para fijar la letra)
+      if (textoActual !== "") {
+        if (textoActual !== ultimaLetra) {
+          tiempoLetra = Date.now();
+          ultimaLetra = textoActual;
+        } else if (Date.now() - tiempoLetra > 1000) {
+          textoFinal += textoActual;
+          ultimaLetra = "";
+          textoFinalElem.innerText = textoFinal;
+        }
+      }
+
+      canvasCtx.restore();
+    }
+
+    // Configuración de MediaPipe Hands
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.8,
+      minTrackingConfidence: 0.8
+    });
+
+    hands.onResults(onResults);
+
+    // Inicialización de la Cámara Web
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await hands.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start();
+
+    // Función para borrar texto
+    function limpiarTexto() {
+      textoFinal = "";
+      textoFinalElem.innerText = "";
+    }
+
+    // Atajo de teclado (Presionar tecla 'R')
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'r' || e.key === 'R') limpiarTexto();
+    });
+  </script>
+</body>
+</html>
