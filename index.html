@@ -2,8 +2,8 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Traductor LSM</title>
-  <!-- Librerías de MediaPipe y Camera Utils -->
+  <title>Traductor LSM - Web</title>
+  <!-- CDN de MediaPipe Hands y Camera Utils -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
   <style>
@@ -13,70 +13,163 @@
       padding: 0;
     }
     body {
-      font-family: Arial, Helvetica, sans-serif;
-      background-color: #121212;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #0f141d;
       color: #ffffff;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
       min-height: 100vh;
+      padding: 20px;
     }
-    .main-container {
+    h1 {
+      margin-bottom: 5px;
+      font-size: 28px;
+      color: #00f2fe;
+      text-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+    }
+    #estado {
+      color: #a0aec0;
+      font-size: 15px;
+      margin-bottom: 25px;
+    }
+    /* Layout Lado a Lado */
+    .layout-main {
+      display: flex;
+      flex-direction: row;
+      gap: 25px;
+      justify-content: center;
+      align-items: stretch;
+      max-width: 1200px;
+      width: 100%;
+    }
+    /* Panel Izquierdo: Cámara */
+    .panel-camara {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #1a202c;
+      padding: 15px;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      border: 1px solid #2d3748;
+    }
+    .container-canvas {
       position: relative;
-      background: #000000;
-      border-radius: 8px;
+      border-radius: 12px;
       overflow: hidden;
-      box-shadow: 0 8px 20px rgba(0,0,0,0.7);
+      border: 2px solid #00f2fe;
+      box-shadow: 0 0 15px rgba(0, 242, 254, 0.3);
     }
     canvas {
       display: block;
-      transform: scaleX(-1); /* Modo espejo como cv2.flip(img, 1) */
+      transform: scaleX(-1); /* Modo espejo */
     }
-    video {
-      display: none;
+    .btn-reiniciar {
+      margin-top: 15px;
+      padding: 10px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      background: linear-gradient(135deg, #2b6cb0, #2c5282);
+      color: #ffffff;
+      border: 1px solid #4299e1;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    }
+    .btn-reiniciar:hover {
+      background: linear-gradient(135deg, #3182ce, #2b6cb0);
+      transform: translateY(-2px);
+      box-shadow: 0 0 12px rgba(66, 153, 225, 0.5);
+    }
+    /* Panel Derecho: Texto Generado */
+    .panel-texto {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #1a202c;
+      padding: 20px;
+      border-radius: 16px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+      border: 1px solid #2d3748;
+      min-width: 320px;
+    }
+    .panel-texto h2 {
+      font-size: 22px;
+      text-align: center;
+      margin-bottom: 15px;
+      color: #e2e8f0;
+    }
+    .box-resultado {
+      flex: 1;
+      background: #0d1117;
+      border-radius: 12px;
+      border: 2px solid #00f2fe;
+      box-shadow: inset 0 0 15px rgba(0, 242, 254, 0.15), 0 0 15px rgba(0, 242, 254, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      word-break: break-all;
+    }
+    #texto_final {
+      font-size: 54px;
+      font-weight: 800;
+      color: #00f2fe;
+      text-shadow: 0 0 20px rgba(0, 242, 254, 0.6);
+      letter-spacing: 4px;
+      text-align: center;
     }
   </style>
 </head>
 <body>
 
-  <div class="main-container">
-    <video id="webcam" playsinline></video>
-    <canvas id="output_canvas" width="640" height="480"></canvas>
+  <h1>Traductor LSM en Tiempo Real</h1>
+  <div id="estado">Iniciando cámara...</div>
+
+  <div class="layout-main">
+    <!-- Panel Izquierdo: Detección -->
+    <div class="panel-camara">
+      <div class="container-canvas">
+        <video id="webcam" style="display:none;" playsinline></video>
+        <canvas id="output_canvas" width="640" height="480"></canvas>
+      </div>
+      <button class="btn-reiniciar" onclick="limpiarTexto()">Reiniciar (R)</button>
+    </div>
+
+    <!-- Panel Derecho: Resultado -->
+    <div class="panel-texto">
+      <h2>Texto Generado</h2>
+      <div class="box-resultado">
+        <span id="texto_final"></span>
+      </div>
+    </div>
   </div>
 
   <script>
     const videoElement = document.getElementById('webcam');
     const canvasElement = document.getElementById('output_canvas');
     const canvasCtx = canvasElement.getContext('2d');
+    const textoFinalElem = document.getElementById('texto_final');
+    const estadoElem = document.getElementById('estado');
 
-    // Variables globales (Replicando el script de Python)
+    // Variables globales
     let textoFinal = "";
     let ultimaLetra = "";
     let tiempoLetra = 0;
 
     function onResults(results) {
+      estadoElem.innerText = "Sistema Listo - Coloca tu mano en la cámara";
+
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-      // Dibujar fotograma de la cámara
+      // Renderizar el frame del video
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
       const ancho = canvasElement.width;
       const alto = canvasElement.height;
-
-      // ======================================
-      // ENCABEZADO
-      // ======================================
-      canvasCtx.fillStyle = "rgb(35, 35, 35)";
-      canvasCtx.fillRect(0, 0, ancho, 60);
-
-      canvasCtx.save();
-      canvasCtx.scale(-1, 1); // Compensar espejo para el texto
-      canvasCtx.fillStyle = "#ffffff";
-      canvasCtx.font = "bold 24px Arial";
-      canvasCtx.fillText("Traductor LSM", -ancho + 20, 40);
-      canvasCtx.restore();
 
       // ======================================
       // REGION DE INTERES (ROI)
@@ -84,7 +177,7 @@
       const x1 = 150, y1 = 50;
       const x2 = 500, y2 = 400;
 
-      canvasCtx.strokeStyle = "#ffffff";
+      canvasCtx.strokeStyle = "#00f2fe";
       canvasCtx.lineWidth = 2;
       canvasCtx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
@@ -116,12 +209,12 @@
           canvasCtx.scale(-1, 1);
           canvasCtx.fillStyle = "#ff0000";
           canvasCtx.font = "bold 22px Arial";
-          canvasCtx.fillText("MANO FUERA DE ROI", -ancho + 10, 260);
+          canvasCtx.fillText("MANO FUERA DE ROI", -ancho + 20, 260);
           canvasCtx.restore();
         } else {
-          // Extraer lógica de estado de los dedos
+          // Extraer estado de los dedos
           const dedos = [];
-          
+
           // Pulgar
           const pulgarExtendido = Math.abs(mano[4].x - mano[2].x) > 0.04 ? 1 : 0;
           dedos.push(pulgarExtendido);
@@ -134,7 +227,7 @@
 
           const patron = dedos.join(',');
 
-          // Mapeo de letras según el patrón de dedos
+          // Mapeo de letras según la postura
           if (patron === "1,0,0,0,0") texto = "A";
           else if (patron === "0,1,1,1,1") texto = "B";
           else if (patron === "0,1,0,0,0") texto = "D";
@@ -145,11 +238,11 @@
           else if (patron === "0,1,1,0,0") texto = "U";
           else if (dedos[0] === 1 && dedos[1] === 1 && dedos[2] === 0 && dedos[3] === 0 && dedos[4] === 0) texto = "L";
 
-          // Mostrar letra detectada en vivo
+          // Mostrar letra detectada sobre el video
           if (texto !== "") {
             canvasCtx.save();
             canvasCtx.scale(-1, 1);
-            canvasCtx.fillStyle = "#00ffff";
+            canvasCtx.fillStyle = "#00f2fe";
             canvasCtx.font = "bold 32px Arial";
             canvasCtx.fillText("LETRA: " + texto, -ancho + 20, 120);
             canvasCtx.restore();
@@ -162,35 +255,19 @@
             } else if (ahora - tiempoLetra > 1.0) {
               textoFinal += texto;
               ultimaLetra = "";
+              textoFinalElem.innerText = textoFinal;
             }
           }
         }
       }
 
-      // ======================================
-      // BARRA INFERIOR (TEXTO ACUMULADO)
-      // ======================================
-      canvasCtx.fillStyle = "rgb(35, 35, 35)";
-      canvasCtx.fillRect(0, alto - 70, ancho, 70);
-
-      canvasCtx.save();
-      canvasCtx.scale(-1, 1);
-      canvasCtx.fillStyle = "#ffffff";
-      canvasCtx.font = "bold 20px Arial";
-      canvasCtx.fillText("Texto generado:", -ancho + 20, alto - 40);
-
-      canvasCtx.fillStyle = "#00ffff";
-      canvasCtx.font = "bold 22px Arial";
-      canvasCtx.fillText(textoFinal, -ancho + 210, alto - 40);
-      canvasCtx.restore();
-
       canvasCtx.restore();
     }
 
-    // Función auxiliar para dibujar los landmarks de la mano
+    // Dibujar los landmarks de la mano
     function drawHandLandmarks(ctx, landmarks, width, height) {
-      ctx.fillStyle = "#00ff00";
-      ctx.strokeStyle = "#ffffff";
+      ctx.fillStyle = "#ffeb3b";
+      ctx.strokeStyle = "#00f2fe";
       ctx.lineWidth = 2;
 
       landmarks.forEach(lm => {
@@ -224,14 +301,19 @@
       height: 480
     });
 
-    camera.start();
+    camera.start().catch(err => {
+      estadoElem.innerText = "Error: Permite el acceso a la cámara en el navegador";
+      estadoElem.style.color = "#e53e3e";
+    });
 
-    // Tecla R para reiniciar texto acumulado
+    function limpiarTexto() {
+      textoFinal = "";
+      ultimaLetra = "";
+      textoFinalElem.innerText = "";
+    }
+
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'r' || e.key === 'R') {
-        textoFinal = "";
-        ultimaLetra = "";
-      }
+      if (e.key === 'r' || e.key === 'R') limpiarTexto();
     });
   </script>
 </body>
