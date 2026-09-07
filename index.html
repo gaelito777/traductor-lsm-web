@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Traductor LSM - Web</title>
-  <!-- CDN MediaPipe y Camera Utils -->
+  <!-- CDN de MediaPipe Hands y Camera Utils -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
   <style>
@@ -164,10 +164,10 @@
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       
-      // Renderizar video
+      // Renderizar el frame del video
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-      // Marco de ROI
+      // Marco de la Region de Interes (ROI)
       const roiX = 80;
       const roiY = 40;
       const roiWidth = 480;
@@ -186,13 +186,13 @@
           const munecaX = landmarks[0].x * canvasElement.width;
           const munecaY = landmarks[0].y * canvasElement.height;
 
-          // Indicador de muñeca
+          // Indicador de la muñeca (punto 0)
           canvasCtx.fillStyle = "#ffeb3b";
           canvasCtx.beginPath();
           canvasCtx.arc(munecaX, munecaY, 6, 0, 2 * Math.PI);
           canvasCtx.fill();
 
-          // Detección de estado de los dedos
+          // Detección del estado de los dedos (1 = abierto, 0 = cerrado)
           let dedos = [];
           const pulgarExtendido = Math.abs(landmarks[4].x - landmarks[2].x) > 0.04 ? 1 : 0;
           dedos.push(pulgarExtendido);
@@ -215,7 +215,7 @@
           else if (patron === "0,1,1,0,0") letraDetectada = "U";
           else if (dedos[0] === 1 && dedos[1] === 1 && dedos[2] === 0 && dedos[3] === 0 && dedos[4] === 0) letraDetectada = "L";
 
-          // Mostrar letra flotante sobre la mano en la cámara
+          // Mostrar letra flotante sobre la mano
           if (letraDetectada !== "") {
             canvasCtx.save();
             canvasCtx.scale(-1, 1);
@@ -227,7 +227,7 @@
         }
       }
 
-      // Confirmación de la letra
+      // Confirmar letra tras mantenerla 0.6 segundos
       if (letraDetectada !== "") {
         if (letraDetectada !== ultimaLetra) {
           tiempoLetra = Date.now();
